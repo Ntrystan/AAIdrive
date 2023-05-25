@@ -33,15 +33,15 @@ class ReportGenerator:
 
 def collect_events():
     session = requests.Session()
-    session.headers.update({"Authorization": "Bearer " + SENTRY_AUTH_TOKEN})
+    session.headers.update({"Authorization": f"Bearer {SENTRY_AUTH_TOKEN}"})
 
-    url = "https://sentry.io/api/0/issues/{}/events/".format(SENTRY_ISSUE_ID)
+    url = f"https://sentry.io/api/0/issues/{SENTRY_ISSUE_ID}/events/"
     while url is not None:
         logging.info(url.rsplit('/')[-1])
         response = session.get(url)
         data = response.json()
         if not isinstance(data, list):
-            logging.error("Unexpected response from Sentry: " + response.text)
+            logging.error(f"Unexpected response from Sentry: {response.text}")
             return
         yield from data
         url = response.links.get('next', {}).get('url')
@@ -58,9 +58,7 @@ def collect_week_events():
 
 
 def tags_dict(tags_list):
-    output = {}
-    for tag in tags_list:
-        output[tag['key']] = tag['value']
+    output = {tag['key']: tag['value'] for tag in tags_list}
     output['vehicle_brand'] = output['hmi_type'].split()[0]
     return output
 
@@ -104,30 +102,37 @@ def format_number(i):
         return "{:.1f}m".format(rounded / 1000000)
     if rounded > 10000:
         return "{:.0f}k".format(rounded / 1000)
-    if rounded > 1000:
-        return "{:.1f}k".format(rounded / 1000)
-    return str(rounded)
+    return "{:.1f}k".format(rounded / 1000) if rounded > 1000 else str(rounded)
 
 
 REPORTS = {
     "cars.json": ReportGenerator(
-        dict(),
-        lambda d, e: d.update({car_identifier(e): {k:v
-            for (k,v) in tags_dict(e['tags']).items()
-            if k in ('vehicle_country', 'vehicle_brand', 'vehicle_type')}}),
-        lambda s: json.dumps(list(s.values()))
+        {},
+        lambda d, e: d.update(
+            {
+                car_identifier(e): {
+                    k: v
+                    for (k, v) in tags_dict(e['tags']).items()
+                    if k
+                    in ('vehicle_country', 'vehicle_brand', 'vehicle_type')
+                }
+            }
+        ),
+        lambda s: json.dumps(list(s.values())),
     ),
     "weekly_users.json": ReportGenerator(
         set(),
         lambda s, e: s.add((e['user'] or {}).get('id')),
-        lambda s: json.dumps({
-            "schemaVersion": 1,
-            "label": "users",
-            "message": format_number(len(s)),
-            "color": "69f",
-            "cacheSeconds": 14400
-        })
-    )
+        lambda s: json.dumps(
+            {
+                "schemaVersion": 1,
+                "label": "users",
+                "message": format_number(len(s)),
+                "color": "69f",
+                "cacheSeconds": 14400,
+            }
+        ),
+    ),
 }
 
 
@@ -142,5 +147,5 @@ if __name__ == '__main__':
     for name, report in REPORTS.items():
         with open(name, 'w') as output_file:
             output = report.output()
-            logging.info(name + ": " + output)
+            logging.info(f"{name}: {output}")
             output_file.write(output)
